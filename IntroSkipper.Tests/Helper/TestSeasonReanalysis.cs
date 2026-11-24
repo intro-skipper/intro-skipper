@@ -1447,7 +1447,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var hash = hashMatches ? ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true) : "stale-hash";
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(episode.EpisodeId, (long?)2)], "introduction-hash");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [(episode.EpisodeId, (long?)3)], hash);
-        var verifier = new QueueVerifier(config, [AnalysisMode.Recap], await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]), ffmpegValid: true);
+        var verifier = new QueueVerifier(config, [AnalysisMode.Recap], await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]), ffmpegValid: true, new SeasonHashInputs(string.Empty));
         var logger = new CapturingLogger<QueueVerifier>();
 
         verifier.Classify(episode);

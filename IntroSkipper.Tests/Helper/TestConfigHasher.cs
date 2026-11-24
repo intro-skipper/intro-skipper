@@ -28,9 +28,7 @@ public sealed class TestConfigHasher
     private static readonly HashSet<string> NotDetection =
     [
         nameof(PluginConfiguration.AutoDetectIntros),
-        nameof(PluginConfiguration.DisableAutomaticHashValidation),
-        nameof(PluginConfiguration.UpdateHashesOnce),
-        nameof(PluginConfiguration.UpdateHashesRequestId),
+        nameof(PluginConfiguration.KeepExistingAnalysis),
         nameof(PluginConfiguration.SettledSeasonDelayHours),
         nameof(PluginConfiguration.AnalyzeSeasonZero),
         nameof(PluginConfiguration.CacheCompressionLevel),
@@ -228,6 +226,8 @@ public sealed class TestConfigHasher
         Case("Recap analysis normalizes the subtitle languages", Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Recap), Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleLanguages = "en,DEU" }, AnalysisMode.Recap), true);
         Case("Preview analysis ignores the subtitle languages while its detection is off", Analysis(recapSubtitles, AnalysisMode.Preview), Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Preview), true);
 
+        Case("Keep hash format is pinned: a change re-checks every kept result once", ConfigHasher.Keep(AnalysisMode.Introduction, AnalyzerAction.Default, true, new SeasonHashInputs(string.Empty)), "C161A6AB74AB7C3E", true);
+
         return data;
     }
 
@@ -298,6 +298,51 @@ public sealed class TestConfigHasher
         var conventional = ConfigHasher.Analysis(Config(!embeddedBefore), mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
 
         Assert.False(ConfigHasher.IsSubtitleOnlyHashChange(stored, conventional));
+    }
+
+    [Fact]
+    public void Keep_ChangesWithEachSeasonInputAndTheRequest()
+    {
+        static string Keep(
+            AnalyzerAction action = AnalyzerAction.Default,
+            int? percent = null,
+            int? limit = null,
+            bool? derive = null,
+            bool? subtitleRecap = null,
+            bool? subtitlePreview = null,
+            string request = "")
+            => ConfigHasher.Keep(AnalysisMode.Recap, action, true, new SeasonHashInputs(request, percent, limit, derive, subtitleRecap, subtitlePreview));
+
+        string[] hashes =
+        [
+            Keep(),
+            Keep(action: AnalyzerAction.Chapter),
+            Keep(percent: 30),
+            Keep(limit: 12),
+            Keep(derive: true),
+            Keep(subtitleRecap: true),
+            Keep(subtitlePreview: false),
+            Keep(request: "r1"),
+        ];
+
+        Assert.Equal(hashes.Length, hashes.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void Keep_CarriesAvailabilityExactlyWhereAnalysisDoes(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration();
+        static string Keep(AnalysisMode mode, bool available)
+            => ConfigHasher.Keep(mode, AnalyzerAction.Default, available, new SeasonHashInputs(string.Empty));
+
+        Assert.Equal(
+            ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) != ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, false),
+            Keep(mode, true) != Keep(mode, false));
     }
 
     [Fact]
@@ -420,7 +465,6 @@ public sealed class TestConfigHasher
                     int number => number + 1,
                     double number => number + 0.5,
                     string text => text + "x",
-                    Guid id => id == Guid.Empty ? Guid.Parse("00000000-0000-0000-0000-000000000001") : Guid.Empty,
                     Enum member => NextMember(member),
                     _ => throw new InvalidOperationException($"No perturbation for {setting.Name} ({setting.PropertyType})."),
                 };

@@ -1,5 +1,5 @@
 import { validateAll } from "../config/validate.ts";
-import { ConfigMergeConflictError, configStore } from "../store/config-store.ts";
+import { configStore } from "../store/config-store.ts";
 import { bindStatusMessage, type StatusState } from "./async-feedback.ts";
 import { confirmDashboard } from "./confirm-dialog.ts";
 import { el } from "./dom.ts";
@@ -82,13 +82,7 @@ export function createAppShell(
         try {
             await configStore.save();
             setStatus("Changes saved", "success");
-        } catch (error) {
-            if (error instanceof ConfigMergeConflictError) {
-                setStatus("Settings conflict with newer server values. Review the highlighted fields.", "error");
-                window.Dashboard.alert("Your settings conflict with newer server values. Review the highlighted fields and save again.");
-                return;
-            }
-
+        } catch {
             setStatus("Save failed", "error");
             window.Dashboard.alert("Failed to save configuration");
         } finally {

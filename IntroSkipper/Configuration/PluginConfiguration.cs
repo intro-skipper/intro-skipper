@@ -132,23 +132,10 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoDetectIntros { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether automatic analysis should ignore changes to
-    /// the analysis configuration hash. File and sidecar changes can still reopen analysis.
+    /// Gets or sets a value indicating whether existing analysis is kept when the plugin or its
+    /// plugin-wide settings change.
     /// </summary>
-    public bool DisableAutomaticHashValidation { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether to validate and update analysis hashes on the
-    /// next successful full-library analysis pass, even when automatic hash validation is disabled.
-    /// The pass clears this flag after it completes without any failed seasons.
-    /// </summary>
-    public bool UpdateHashesOnce { get; set; }
-
-    /// <summary>
-    /// Gets or sets the identity of the current one-time hash update request. The dashboard
-    /// changes this when a new request is made so an in-progress run cannot clear that request.
-    /// </summary>
-    public Guid UpdateHashesRequestId { get; set; }
+    public bool KeepExistingAnalysis { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops

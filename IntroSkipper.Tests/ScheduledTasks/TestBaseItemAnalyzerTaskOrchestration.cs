@@ -64,7 +64,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var snapshot = await database.GetSeasonQueueSnapshotAsync(episodes[0].SeasonId, episodes.Select(episode => episode.EpisodeId).ToArray());
         foreach (var episode in episodes)
         {
-            new QueueVerifier(config, [AnalysisMode.Recap], snapshot, ffmpegValid: true).Classify(episode);
+            new QueueVerifier(config, [AnalysisMode.Recap], snapshot, ffmpegValid: true, new SeasonHashInputs(string.Empty)).Classify(episode);
             Assert.True(episode.NeedsSubtitleOnlyReanalysis(AnalysisMode.Recap));
         }
 
@@ -353,7 +353,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.NotAnalyzed);
         episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
         var snapshot = await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]);
-        new QueueVerifier(config, [AnalysisMode.Credits, AnalysisMode.Preview], snapshot, false).Classify(episode);
+        new QueueVerifier(config, [AnalysisMode.Credits, AnalysisMode.Preview], snapshot, false, new SeasonHashInputs(string.Empty)).Classify(episode);
         Assert.Equal(EpisodeState.UserProvided, episode.GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview));
 
@@ -1041,7 +1041,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
         Assert.Equal(episode.AnalysisConfigHash, snapshot.AnalysisRecords[(episodeId, AnalysisMode.Preview)].ConfigHash);
         var nextPass = new QueuedEpisode { EpisodeId = episodeId };
-        new QueueVerifier(config, [AnalysisMode.Preview], snapshot, false, previewFromCreditsEndOverride: false).Classify(nextPass);
+        new QueueVerifier(config, [AnalysisMode.Preview], snapshot, false, new SeasonHashInputs(string.Empty, PreviewFromCreditsEnd: false)).Classify(nextPass);
         Assert.Equal(EpisodeState.Analyzed, nextPass.GetAnalyzed(AnalysisMode.Preview));
     }
 
@@ -1100,7 +1100,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         // Classifies the season's episodes as a pass would, then runs Preview over them.
         async Task<QueuedEpisode[]> PassAsync(params Guid[] ids)
         {
-            var verifier = new QueueVerifier(config, [AnalysisMode.Preview], await database.GetSeasonQueueSnapshotAsync(seasonId, ids), ffmpegValid: true);
+            var verifier = new QueueVerifier(config, [AnalysisMode.Preview], await database.GetSeasonQueueSnapshotAsync(seasonId, ids), ffmpegValid: true, new SeasonHashInputs(string.Empty));
             QueuedEpisode[] episodes = [.. ids.Select((id, index) => new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, EpisodeNumber = index + 1, Duration = 1800, Path = $"/media/episode-{index + 1}.mkv" })];
             foreach (var episode in episodes)
             {
@@ -1161,6 +1161,156 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
             Assert.Contains((episode.Id, AnalysisMode.Introduction), snapshot.AnalysisRecords.Keys);
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(AnalyzerAction.None)]
+    [InlineData(AnalyzerAction.Default)]
+    public async Task AnalyzeItemsAsync_RecordsTheEpisodesItOpened_UnderTheSeasonsRequest(AnalyzerAction action)
+    {
+        var config = new PluginConfiguration();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var seasonId = Guid.NewGuid();
+        QueuedEpisode Episode(int number, EpisodeState state)
+        {
+            var episode = new QueuedEpisode
+            {
+                EpisodeId = Guid.NewGuid(),
+                SeasonId = seasonId,
+                SeasonNumber = 1,
+                EpisodeNumber = number,
+                Name = $"Episode {number}",
+                Duration = 1320,
+                Chapters = [],
+                RecheckRequest = "r0",
+            };
+            episode.SetAnalyzed(AnalysisMode.Commercial, state);
+            return episode;
+        }
+
+        var opened = Episode(1, EpisodeState.NotAnalyzed);
+        var noSegments = Episode(2, EpisodeState.NoSegments);
+        var settled = Episode(3, EpisodeState.Analyzed);
+        var userProvided = Episode(4, EpisodeState.UserProvided);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Commercial, [noSegments.EpisodeId, settled.EpisodeId], "old");
+        await database.RequestAnalysisRecheckAsync();
+
+        await CreateTask(new StubFFmpegService(), database).AnalyzeItemsAsync([opened, noSegments, settled, userProvided], AnalysisMode.Commercial, action, false, CancellationToken.None);
+
+        var records = (await database.GetSeasonQueueSnapshotAsync(seasonId, [opened.EpisodeId, noSegments.EpisodeId, settled.EpisodeId, userProvided.EpisodeId])).AnalysisRecords;
+        var expected = new RecordHashes(
+            ConfigHasher.Analysis(config, AnalysisMode.Commercial, action, false),
+            ConfigHasher.Keep(AnalysisMode.Commercial, action, false, new SeasonHashInputs("r0", PreviewFromCreditsEnd: false)));
+        Assert.Equal(expected, Hashes(records[(opened.EpisodeId, AnalysisMode.Commercial)]));
+        Assert.Equal(expected, Hashes(records[(noSegments.EpisodeId, AnalysisMode.Commercial)]));
+        Assert.Equal("old", records[(settled.EpisodeId, AnalysisMode.Commercial)].ConfigHash);
+        Assert.DoesNotContain((userProvided.EpisodeId, AnalysisMode.Commercial), records.Keys);
+
+        static RecordHashes Hashes(AnalysisRecord record) => new(record.ConfigHash, record.KeepHash!);
+    }
+
+    [Fact]
+    public async Task SeasonPass_Recheck_ConfirmsACurrentRecordWithoutRewritingIt()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = true,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+            KeepExistingAnalysis = true,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var seasonId = Guid.NewGuid();
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: mediaPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            await database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None });
+            var configHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.None, false);
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(episode.Id, (long?)null)], new RecordHashes(configHash, "keep-before-the-request"));
+            await database.RequestAnalysisRecheckAsync();
+            var request = await database.GetAnalysisRecheckRequestAsync();
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                new StubFFmpegService { VersionCheck = () => false },
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]);
+
+            var record = (await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id])).AnalysisRecords[(episode.Id, AnalysisMode.Introduction)];
+            Assert.Equal(configHash, record.ConfigHash);
+            Assert.Equal(ConfigHasher.Keep(AnalysisMode.Introduction, AnalyzerAction.None, false, new SeasonHashInputs(request, PreviewFromCreditsEnd: false)), record.KeepHash);
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
+    // A record without a keep hash is kept as it stands with the option on, so a re-check made
+    // before the first pass that keeps it would otherwise leave a stale result in place.
+    [Fact]
+    public async Task SeasonPass_RecheckBeforeTheFirstKeptPass_RerunsAStaleRecordWithoutKeepHash()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = true,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+            KeepExistingAnalysis = true,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var seasonId = Guid.NewGuid();
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: mediaPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            using var segmentDb = new TempSegmentDb();
+            var database = segmentDb.Database;
+            await database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None });
+
+            // The constructor the legacy import and a segment restore write through leaves the keep hash null.
+            await using (var context = segmentDb.Context())
+            {
+                context.AnalyzedItems.Add(new DbAnalyzedItem(episode.Id, AnalysisMode.Introduction, "cfg-from-an-older-release"));
+                await context.SaveChangesAsync();
+            }
+
+            await database.RequestAnalysisRecheckAsync();
+            var request = await database.GetAnalysisRecheckRequestAsync();
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                new StubFFmpegService { VersionCheck = () => false },
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]);
+
+            var record = (await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id])).AnalysisRecords[(episode.Id, AnalysisMode.Introduction)];
+            Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.None, false), record.ConfigHash);
+            Assert.Equal(ConfigHasher.Keep(AnalysisMode.Introduction, AnalyzerAction.None, false, new SeasonHashInputs(request, PreviewFromCreditsEnd: false)), record.KeepHash);
         }
         finally
         {

@@ -191,6 +191,83 @@ internal static class ConfigHasher
     }
 
     /// <summary>
+    /// Computes <see cref="Analysis(PluginConfiguration, AnalysisMode, AnalyzerAction, bool, int?, int?, bool?, bool?, bool?, bool, ChapterSource?)"/>
+    /// from a season's <see cref="SeasonHashInputs"/>.
+    /// </summary>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">The season's analyzer action for the mode.</param>
+    /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
+    /// <param name="season">The season's hash inputs.</param>
+    /// <param name="includeSubtitleSettings">Whether to include subtitle settings in the mode hash.</param>
+    /// <param name="chapterSource">The chapter source the analyzed chapters came from. <see langword="null"/> takes the setting.</param>
+    /// <returns>A compact hash.</returns>
+    public static string Analysis(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        SeasonHashInputs season,
+        bool includeSubtitleSettings = true,
+        ChapterSource? chapterSource = null)
+        => Analysis(
+            config,
+            mode,
+            action,
+            ffmpegValid,
+            season.AnalysisPercentOverride,
+            season.AnalysisLengthLimitOverride,
+            season.PreviewFromCreditsEnd,
+            season.SubtitleRecapDetectionOverride,
+            season.SubtitlePreviewDetectionOverride,
+            includeSubtitleSettings,
+            chapterSource);
+
+    /// <summary>
+    /// Hashes what still reopens a result while <see cref="PluginConfiguration.KeepExistingAnalysis"/>
+    /// is on: the season's analyzer action for the mode, the season's overrides, Chromaprint
+    /// availability for the modes whose analysis hash carries it, and the re-check request.
+    /// </summary>
+    /// <param name="mode">Analysis mode; decides only whether availability joins.</param>
+    /// <param name="action">The season's analyzer action for the mode.</param>
+    /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
+    /// <param name="season">The season's hash inputs.</param>
+    /// <returns>A compact hash.</returns>
+    public static string Keep(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid, SeasonHashInputs season)
+        => ComputeHash(Invariant(
+            $"keep|v1|action={action}|pct={season.AnalysisPercentOverride}|limit={season.AnalysisLengthLimitOverride}",
+            $"|derive={season.PreviewFromCreditsEnd}|subRecap={season.SubtitleRecapDetectionOverride}|subPreview={season.SubtitlePreviewDetectionOverride}",
+            $"{(CarriesChromaprintAvailability(mode) ? $"|chromaprint={ffmpegValid}" : string.Empty)}|recheck={season.RecheckRequest}"));
+
+    /// <summary>
+    /// Computes both hashes an analysis record is written and judged under: the analysis hash
+    /// and the keep hash of the mode, from the same season inputs.
+    /// </summary>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">The season's analyzer action for the mode.</param>
+    /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
+    /// <param name="season">The season's hash inputs.</param>
+    /// <param name="chapterSource">The chapter source the analyzed chapters came from. <see langword="null"/> takes the setting.</param>
+    /// <returns>The record's hashes.</returns>
+    public static RecordHashes Record(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        SeasonHashInputs season,
+        ChapterSource? chapterSource = null)
+        => new(Analysis(config, mode, action, ffmpegValid, season, chapterSource: chapterSource), Keep(mode, action, ffmpegValid, season));
+
+    /// <summary>
+    /// Whether the mode's analysis hash carries Chromaprint availability.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><see langword="true"/> for Introduction, Credits and Recap.</returns>
+    public static bool CarriesChromaprintAvailability(AnalysisMode mode)
+        => mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+
+    /// <summary>
     /// Determines whether a stored compound Recap or Preview hash has the same conventional
     /// analyzer inputs as the current configuration, ignoring only subtitle settings.
     /// </summary>

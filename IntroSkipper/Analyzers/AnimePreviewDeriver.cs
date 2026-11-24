@@ -60,10 +60,13 @@ internal static class AnimePreviewDeriver
     /// re-running would not change the gate's answer. An episode with any other automatic
     /// Preview, a subtitle or chapter match, is skipped too. The facade ranks a derived preview
     /// below both and would refuse the write, and the episode stays unsettled so its Preview
-    /// pass can retire that row once it is stale and then derive the preview.
+    /// pass can retire that row once it is stale and then derive the preview. A derived preview
+    /// carries the hash of the Credits rows it derives from (<see cref="SourceHash"/>), and an
+    /// episode whose rows carry different hashes keeps its Preview as it is.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
-    /// <param name="items">Episodes whose Credits or Preview mode was just analyzed.</param>
+    /// <param name="items">Episodes whose Credits or Preview mode was just analyzed, each stamped with
+    /// the current Credits hash (<see cref="QueuedEpisode.AnalysisConfigHash"/>) for runs of user rows.</param>
     /// <param name="minimumDuration">The minimum preview duration in seconds; shorter spans derive nothing.</param>
     /// <param name="cancellationToken">Cancellation token; stops the loop before the next episode.</param>
     /// <param name="settlePreviewState">
@@ -104,6 +107,7 @@ internal static class AnimePreviewDeriver
                 .Select(s => s.ToSegment())];
 
             var preview = Compute(episode.EpisodeId, previewEnd, credits, previews, minimumDuration);
+            var sourceHash = credits is null ? null : SourceHash(dbSegments, credits, episode.AnalysisConfigHash);
             if (preview is null)
             {
                 if (credits is { Valid: true } && previewEnd - credits.End >= minimumDuration)
@@ -114,14 +118,14 @@ internal static class AnimePreviewDeriver
                         && segment.State == SegmentState.Active
                         && Math.Abs(TickConversions.ToSeconds(segment.StartTicks) - credits.End) <= StartTolerance
                         && Math.Abs(TickConversions.ToSeconds(segment.EndTicks) - previewEnd) <= StartTolerance);
-                    if (matchingPreview is not null && matchingPreview.ConfigHash != episode.AnalysisConfigHash)
+                    if (matchingPreview is not null && sourceHash is not null && matchingPreview.ConfigHash != sourceHash)
                     {
                         await database.ReplaceAutoSegmentsAsync(
                             episode.EpisodeId,
                             AnalysisMode.Preview,
                             [matchingPreview.ToSegment()],
                             SegmentSource.CreditsDerived,
-                            episode.AnalysisConfigHash,
+                            sourceHash,
                             cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -138,12 +142,46 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
-            await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            if (sourceHash is null)
+            {
+                continue;
+            }
+
+            await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, sourceHash, cancellationToken).ConfigureAwait(false);
             if (settlePreviewState && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
             {
                 episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the hash for a preview derived from <paramref name="run"/>. That is the hash the
+    /// run's active automatic Credits rows share, or <paramref name="fallback"/> when the run has
+    /// no automatic row with a hash (user rows, restored rows).
+    /// </summary>
+    /// <param name="segments">The episode's stored segments.</param>
+    /// <param name="run">The credits run the preview starts after, from <see cref="CreditsRuns"/>.</param>
+    /// <param name="fallback">The current Credits hash.</param>
+    /// <returns>The hash to write, or null when the run's automatic rows carry different hashes.</returns>
+    internal static string? SourceHash(IReadOnlyList<DbSegment> segments, Segment run, string fallback)
+    {
+        var hashes = segments
+            .Where(s => s.Type == AnalysisMode.Credits
+                && s.State == SegmentState.Active
+                && s.Source != SegmentSource.User
+                && s.ConfigHash.Length > 0)
+            .Select(s => (Row: s.ToSegment(), s.ConfigHash))
+            .Where(row => row.Row.Start <= run.End && row.Row.End >= run.Start)
+            .Select(row => row.ConfigHash)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return hashes.Length switch
+        {
+            0 => fallback,
+            1 => hashes[0],
+            _ => null,
+        };
     }
 
     /// <summary>

@@ -109,6 +109,11 @@ public sealed class QueuedEpisode
     public bool? SubtitlePreviewDetectionOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the re-check request the season pass read, empty when none was ever made.
+    /// </summary>
+    public string RecheckRequest { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }

@@ -237,7 +237,7 @@ public sealed class TestLegacyAnalysisCompatibility
 
         Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
         var candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
+        new QueueVerifier(config, [mode], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
     }
 
@@ -266,7 +266,7 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.Equal(tableHash, Assert.Single(snapshot.AnalysisRecords).Value.ConfigHash);
 
         var candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
+        new QueueVerifier(config, [mode], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
         Assert.Equal(EpisodeState.NoSegments, candidate.GetAnalyzed(mode));
         Assert.Equal(new ChapterSourceCheck(tableHash, embeddedHash, ChapterSource.Embedded), Assert.Single(candidate.ChapterSourceChecks).Value);
     }
@@ -300,7 +300,7 @@ public sealed class TestLegacyAnalysisCompatibility
         foreach (var id in ids)
         {
             var candidate = new QueuedEpisode { EpisodeId = id };
-            new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
+            new QueueVerifier(config, [mode], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
         }
     }
@@ -327,7 +327,7 @@ public sealed class TestLegacyAnalysisCompatibility
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
         var candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [AnalysisMode.Commercial], snapshot, ffmpegValid: true).Classify(candidate);
+        new QueueVerifier(config, [AnalysisMode.Commercial], snapshot, ffmpegValid: true, new SeasonHashInputs(string.Empty)).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Commercial));
     }
 
@@ -427,7 +427,7 @@ public sealed class TestLegacyAnalysisCompatibility
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
         Assert.Equal(hash, snapshot.AnalysisRecords[(id, AnalysisMode.Credits)].ConfigHash);
         var candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true).Classify(candidate);
+        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
     }
 
@@ -449,13 +449,13 @@ public sealed class TestLegacyAnalysisCompatibility
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
         var candidate = new QueuedEpisode { EpisodeId = id };
 
-        new QueueVerifier(config, [mode], snapshot, available).Classify(candidate);
+        new QueueVerifier(config, [mode], snapshot, available, new SeasonHashInputs(string.Empty)).Classify(candidate);
 
         Assert.Equal(expected, candidate.GetAnalyzed(mode));
         config.MinimumIntroDuration++;
         Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
         candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
+        new QueueVerifier(config, [mode], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
     }
 
@@ -475,7 +475,7 @@ public sealed class TestLegacyAnalysisCompatibility
         foreach (var id in ids)
         {
             var candidate = new QueuedEpisode { EpisodeId = id };
-            new QueueVerifier(config, [mode, AnalysisMode.Recap], snapshot, true).Classify(candidate);
+            new QueueVerifier(config, [mode, AnalysisMode.Recap], snapshot, true, new SeasonHashInputs(string.Empty)).Classify(candidate);
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Recap));
         }

@@ -352,6 +352,10 @@ export function rebuildDatabase(
     return request<null>("Intros/RebuildDatabase" + query, { method: "POST", signal });
 }
 
+export function recheckAnalysis(signal?: AbortSignal): Promise<ApiResult<null>> {
+    return request<null>("Intros/RecheckAnalysis", { method: "POST", signal });
+}
+
 export function resetConfiguration(signal?: AbortSignal): Promise<ApiResult<null>> {
     return request<null>("IntroSkipper/Configuration/Reset", { method: "POST", signal });
 }

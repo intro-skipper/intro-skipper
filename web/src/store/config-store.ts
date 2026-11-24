@@ -1,6 +1,6 @@
 import type { FieldStoreEvents } from "../config/field-spec.ts";
 import { configKeys, configSchema, isKind, type ConfigKey, type PluginConfig } from "../config/schema.ts";
-import { linkedField, validateAll, validatePair, validateSpec } from "../config/validate.ts";
+import { linkedField, validatePair, validateSpec } from "../config/validate.ts";
 import { withDashboardLoading } from "../components/async-feedback.ts";
 import { eventBus } from "../lifecycle.ts";
 import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts";
@@ -53,25 +53,6 @@ function takeSnapshot(source: PluginConfig): void {
     snapshot = JSON.parse(JSON.stringify(source)) as PluginConfig;
 }
 
-function createUpdateHashesRequestId(): string {
-    if (typeof globalThis.crypto?.randomUUID === "function") {
-        return globalThis.crypto.randomUUID();
-    }
-
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-        const random = Math.floor(Math.random() * 16);
-        const value = character === "x" ? random : (random % 4) + 8;
-        return value.toString(16);
-    });
-}
-
-export class ConfigMergeConflictError extends Error {
-    constructor() {
-        super("Server configuration changed and the merged values are invalid.");
-        this.name = "ConfigMergeConflictError";
-    }
-}
-
 export const configStore = {
     /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
     subscribe: bus.on,
@@ -105,10 +86,6 @@ export const configStore = {
     set<K extends ConfigKey>(field: K, value: PluginConfig[K]): void {
         if (!config || !snapshot) throw new Error("Config not loaded");
 
-        if (field === "UpdateHashesOnce" && value === true && config.UpdateHashesOnce !== true) {
-            config = { ...config, UpdateHashesRequestId: createUpdateHashesRequestId() };
-        }
-
         config[field] = value;
 
         // Re-check the other half of a min/max pair so both inputs stay in sync.
@@ -124,40 +101,7 @@ export const configStore = {
     async save(): Promise<void> {
         await withDashboardLoading(async () => {
             const serverConfig = normalizePluginConfig(await loadPluginConfig());
-            if (!config || !snapshot) throw new Error("Config not loaded");
-            const serverSnapshot = JSON.parse(JSON.stringify(serverConfig)) as PluginConfig;
-            const localErrors = validateAll(config);
-            for (const key of configKeys) {
-                if (!sameValue(config[key], snapshot[key])) {
-                    Object.assign(serverConfig, { [key]: config[key] });
-                }
-            }
-            if (config.UpdateHashesRequestId !== snapshot.UpdateHashesRequestId) {
-                Object.assign(serverConfig, {
-                    UpdateHashesRequestId: config.UpdateHashesRequestId,
-                    UpdateHashesOnce: config.UpdateHashesOnce,
-                });
-            }
-            const mergedErrors = validateAll(serverConfig);
-            const hasNewConflict = [...mergedErrors].some(([field, error]) => localErrors.get(field) !== error);
-            if (hasNewConflict) {
-                config = serverConfig;
-                snapshot = serverSnapshot;
-                emit("loaded");
-                for (const key of configKeys) {
-                    if (!sameValue(config[key], snapshot[key])) {
-                        emit("changed", { field: key });
-                    }
-
-                    emit("validation", { field: key, error: fieldError(key, config) });
-                }
-
-                if (config.UpdateHashesRequestId !== snapshot.UpdateHashesRequestId) {
-                    emit("changed", { field: "UpdateHashesOnce" });
-                }
-
-                throw new ConfigMergeConflictError();
-            }
+            Object.assign(serverConfig, config);
             const result = await savePluginConfig(serverConfig);
 
             // Keep the skip-button patch in sync, but do not block saving on it.
@@ -168,7 +112,6 @@ export const configStore = {
             config = serverConfig;
             takeSnapshot(serverConfig);
             window.Dashboard.processPluginConfigurationUpdateResult(result);
-            emit("loaded");
             emit("saved");
         });
     },
@@ -179,6 +122,6 @@ export const configStore = {
         const saved = snapshot;
         return (Object.keys(saved) as (keyof PluginConfig)[]).some(
             (field) => !sameValue(current[field], saved[field]),
-        ) || current.UpdateHashesRequestId !== saved.UpdateHashesRequestId;
+        );
     },
 };

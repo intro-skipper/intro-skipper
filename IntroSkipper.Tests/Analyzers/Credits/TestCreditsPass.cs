@@ -1342,7 +1342,7 @@ public sealed class TestCreditsPass
             [new Segment(episodes[0].EpisodeId, new TimeRange(750, Duration))], SegmentSource.Combined, currentHash);
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [episodes[0].EpisodeId], currentHash);
         var snapshot = await database.GetSeasonQueueSnapshotAsync(episodes[0].SeasonId, episodes.Select(e => e.EpisodeId).ToArray());
-        var verifier = new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true);
+        var verifier = new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true, new SeasonHashInputs(string.Empty));
         foreach (var episode in episodes)
         {
             verifier.Classify(episode);
