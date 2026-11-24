@@ -252,7 +252,7 @@ internal sealed partial class QueueVerifier
         var needsBackfill = false;
         var mediaConfirmed = false;
         var ambiguousMismatch = false;
-        HashSet<AnalysisMode> ambiguousMismatchModes = [];
+        List<(AnalysisMode Mode, string Hash)> ambiguousMismatchModes = [];
         List<(AnalysisMode Mode, string Hash)> sidecarMismatches = [];
         foreach (var mode in AllModes)
         {
@@ -292,7 +292,7 @@ internal sealed partial class QueueVerifier
                 {
                     mediaConfirmed = true;
                 }
-                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview) || IsCurrentHash(record.ConfigHash, mode))
                 {
                     candidate.FileChanged = true;
                     return (true, new HashSet<AnalysisMode>());
@@ -314,7 +314,7 @@ internal sealed partial class QueueVerifier
                         ambiguousMismatch = true;
                     }
 
-                    ambiguousMismatchModes.Add(mode);
+                    ambiguousMismatchModes.Add((mode, record.ConfigHash));
                 }
             }
         }
@@ -336,7 +336,17 @@ internal sealed partial class QueueVerifier
         HashSet<AnalysisMode> reopened = [];
         if (mediaConfirmed)
         {
-            reopened.UnionWith(ambiguousMismatchModes);
+            foreach (var (mode, hash) in ambiguousMismatchModes)
+            {
+                if (IsConventionalHashCurrent(hash, mode))
+                {
+                    candidate.MarkSubtitleOnlyReanalysis(mode);
+                }
+                else
+                {
+                    reopened.Add(mode);
+                }
+            }
         }
 
         foreach (var (mode, hash) in sidecarMismatches)

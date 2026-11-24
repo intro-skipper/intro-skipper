@@ -53,6 +53,18 @@ function takeSnapshot(source: PluginConfig): void {
     snapshot = JSON.parse(JSON.stringify(source)) as PluginConfig;
 }
 
+function createUpdateHashesRequestId(): string {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+        return globalThis.crypto.randomUUID();
+    }
+
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+        const random = Math.floor(Math.random() * 16);
+        const value = character === "x" ? random : (random % 4) + 8;
+        return value.toString(16);
+    });
+}
+
 export const configStore = {
     /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
     subscribe: bus.on,
@@ -87,7 +99,7 @@ export const configStore = {
         if (!config || !snapshot) throw new Error("Config not loaded");
 
         if (field === "UpdateHashesOnce" && value === true && config.UpdateHashesOnce !== true) {
-            config = { ...config, UpdateHashesRequestId: crypto.randomUUID() };
+            config = { ...config, UpdateHashesRequestId: createUpdateHashesRequestId() };
         }
 
         config[field] = value;
@@ -112,7 +124,10 @@ export const configStore = {
                 }
             }
             if (config.UpdateHashesRequestId !== snapshot.UpdateHashesRequestId) {
-                Object.assign(serverConfig, { UpdateHashesRequestId: config.UpdateHashesRequestId });
+                Object.assign(serverConfig, {
+                    UpdateHashesRequestId: config.UpdateHashesRequestId,
+                    UpdateHashesOnce: config.UpdateHashesOnce,
+                });
             }
             const result = await savePluginConfig(serverConfig);
 
@@ -124,6 +139,7 @@ export const configStore = {
             config = serverConfig;
             takeSnapshot(serverConfig);
             window.Dashboard.processPluginConfigurationUpdateResult(result);
+            emit("loaded");
             emit("saved");
         });
     },
