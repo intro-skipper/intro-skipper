@@ -241,7 +241,7 @@ public partial class BaseItemAnalyzerTask(
             episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
         }
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken, validateHashes).ConfigureAwait(false);
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, validateHashes, cancellationToken).ConfigureAwait(false);
         if (season.Episodes.Count > 0 && !ShouldCreateCreditsDerivedPreview(season.Episodes[0], Config))
         {
             // A disabled season choice clears credits-derived previews even when queue
@@ -654,15 +654,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="candidates">One season's resolved episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="validateHashes">Whether stored configuration hash mismatches should trigger analysis.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
     internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(
         IReadOnlyList<QueuedEpisode> candidates,
         IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
-        CancellationToken cancellationToken = default,
-        bool validateHashes = true)
+        bool validateHashes = true,
+        CancellationToken cancellationToken = default)
     {
         if (candidates.Count == 0)
         {
