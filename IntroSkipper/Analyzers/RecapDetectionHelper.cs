@@ -35,22 +35,27 @@ internal static class RecapDetectionHelper
     /// <param name="episode">Queued episode.</param>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="recapStart">Where the recap is known to start, or <see langword="null"/> when
+    /// it is not known yet. An introduction that starts at or before it plays ahead of the recap,
+    /// as a title sequence that opens the episode does, and does not bound the scan.</param>
     /// <returns>The maximum recap boundary in seconds.</returns>
     internal static async Task<double> GetMaximumBoundaryAsync(
         IntroSkipperDatabase database,
         QueuedEpisode episode,
         PluginConfiguration config,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        double? recapStart = null)
     {
         var maximumBoundary = Math.Min(episode.Duration, config.MaximumRecapDetectionDuration);
         var segments = await database.GetSegmentsAsync(
             episode.EpisodeId,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        // A recap must end before the earliest stored introduction begins.
+        // A recap must end before the earliest stored introduction that follows it begins.
         foreach (var segment in segments)
         {
-            if (segment.Type == AnalysisMode.Introduction)
+            if (segment.Type == AnalysisMode.Introduction
+                && (recapStart is not { } start || TickConversions.ToSeconds(segment.StartTicks) > start))
             {
                 maximumBoundary = Math.Min(maximumBoundary, TickConversions.ToSeconds(segment.StartTicks));
             }

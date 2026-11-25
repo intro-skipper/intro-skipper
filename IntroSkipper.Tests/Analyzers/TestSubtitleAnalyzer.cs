@@ -573,6 +573,45 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(scans, ffmpeg.Calls);
     }
 
+    // An episode that opens with its title sequence plays the intro before the recap cue. That
+    // intro does not cut the black scan short: the scan still reaches
+    // MaximumRecapDetectionDuration, and the recap at the cue at 10 s ends at the 3 s run at
+    // 60.06 s. An intro that follows the cue still ends the scan at its start.
+    [Theory]
+    [InlineData(0, 8, 60.06, 120)] // the intro at 0-8 s plays before the cue
+    [InlineData(10, 8, 60.06, 120)] // an intro starting at the cue plays before the recap
+    [InlineData(50, 30, 0, 50)] // the intro at 50 s follows the cue and ends the scan before the run
+    public async Task RecapSubtitle_AnIntroBeforeTheCueDoesNotShortenTheBlackScan(double introStart, double introLength, double expectedEnd, double expectedScanEnd)
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(introStart), DatabaseTestHelpers.Ticks(introStart + introLength));
+
+        var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, MaximumRecapDuration = 120 };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var ffmpeg = new StubFFmpegService
+        {
+            Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on the story")], Complete: true),
+            RangeBlackFrames = (_, range, _, _, _) => ScanFrames(range.End, [1440, 72]),
+        };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 300,
+            IntroFingerprintEnd = 120,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+        };
+
+        await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config)
+            .AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        (double Start, double End, SegmentSource Source)[] expected = expectedEnd > 0 ? [(10, expectedEnd, SegmentSource.Subtitle)] : [];
+        Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
+        StubFFmpegService.Call[] scans = [new StubFFmpegService.RangeScan(0, expectedScanEnd, 0, config.BlackFrameThreshold, AnalysisMode.Recap)];
+        Assert.Equal(scans, ffmpeg.Calls);
+    }
+
     // The recap ends at the black run real ffmpeg reports: a generated episode with a recap cue
     // at 5 s, a 1 s black run at 30 s, which is too short, and a 3 s run at 40 s.
     [Fact]
