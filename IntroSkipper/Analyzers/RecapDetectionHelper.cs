@@ -70,7 +70,10 @@ internal static class RecapDetectionHelper
     /// </summary>
     /// <param name="ffmpegService">FFmpeg service.</param>
     /// <param name="episode">Queued episode.</param>
-    /// <param name="maxRecapBoundary">The latest timestamp the scan should cover.</param>
+    /// <param name="maxRecapBoundary">The latest timestamp a recap may end at. The scan reads
+    /// <see cref="MinimumEndingBlackRun"/> seconds past it, capped at the episode end, so a black run
+    /// that starts before the boundary and continues past it, such as the fade into an intro, is
+    /// measured whole. Callers still take only frames up to the boundary as a recap end.</param>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The black frames that satisfy the normalized threshold.</returns>
@@ -85,7 +88,7 @@ internal static class RecapDetectionHelper
         // baseline darkness from the full distribution before the configured percentage applies.
         var blackFrames = await ffmpegService.DetectBlackFramesAsync(
             episode,
-            new TimeRange(0, maxRecapBoundary),
+            new TimeRange(0, Math.Min(episode.Duration, maxRecapBoundary + MinimumEndingBlackRun)),
             0,
             AnalysisMode.Recap,
             config,
