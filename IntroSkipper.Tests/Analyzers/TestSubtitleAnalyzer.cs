@@ -528,15 +528,16 @@ public sealed class TestSubtitleAnalyzer
     // else at the first black run of at least 2 s that starts in it. Runs are a start frame and
     // a frame count at 23.976 fps, so 48 frames last 2.002 s and 47 frames 1.96 s. The black
     // scan covers the range Chromaprint and black-frame recaps scan, up to the intro start or
-    // MaximumRecapDetectionDuration, so the detection cache serves both from one decode. With
-    // no end the match is rejected: the mode settles and keeps its standing rows.
+    // MaximumRecapDetectionDuration plus the 2 s it reads past them, so the detection cache serves
+    // both from one decode. With no end the match is rejected: the mode settles and keeps its
+    // standing rows.
     [Theory]
     [InlineData(new[] { 20d, 45 }, new[] { 720, 72 }, 0, 120, 45, 0)] // a chapter before an earlier run; one before 25 s is too early
-    [InlineData(new double[0], new[] { 480, 72, 720, 24, 1440, 72 }, 0, 120, 60.06, 120)] // a run before 25 s, a 1 s run, a 3 s run
-    [InlineData(new double[0], new[] { 960, 48 }, 0, 120, 40.04, 120)] // 48 frames
-    [InlineData(new double[0], new[] { 960, 47, 1680, 72 }, 0, 120, 70.07, 120)] // 47 frames are too short
-    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 50, 120, 0, 50)] // the intro at 50 s comes first, and is no end itself
-    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 0, 40, 0, 120)] // MaximumRecapDuration ends the range at 50 s
+    [InlineData(new double[0], new[] { 480, 72, 720, 24, 1440, 72 }, 0, 120, 60.06, 122)] // a run before 25 s, a 1 s run, a 3 s run
+    [InlineData(new double[0], new[] { 960, 48 }, 0, 120, 40.04, 122)] // 48 frames
+    [InlineData(new double[0], new[] { 960, 47, 1680, 72 }, 0, 120, 70.07, 122)] // 47 frames are too short
+    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 50, 120, 0, 52)] // the intro at 50 s comes first, and is no end itself
+    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 0, 40, 0, 122)] // MaximumRecapDuration ends the range at 50 s
     public async Task RecapSubtitle_EndsAtTheFirstChapterElseTheFirstLongBlackRun(double[] chapters, int[] runs, double introStart, int maximumRecapDuration, double expectedEnd, double expectedScanEnd)
     {
         var episodeId = Guid.NewGuid();
@@ -570,6 +571,43 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
         Assert.Equal(expectedEnd > 0 ? SubtitleOutcome.None : SubtitleOutcome.Rejected, episode.GetSubtitleOutcome(AnalysisMode.Recap));
         StubFFmpegService.Call[] scans = expectedScanEnd > 0 ? [new StubFFmpegService.RangeScan(0, expectedScanEnd, 0, config.BlackFrameThreshold, AnalysisMode.Recap)] : [];
+        Assert.Equal(scans, ffmpeg.Calls);
+    }
+
+    // The fade into an intro at 50 s is a 2.42 s black run that starts 1.95 s before the intro.
+    // The scan reads 2 s past the intro start, so the run counts whole and ends the recap. A run
+    // that starts after the intro start is no end, though the scan reads it.
+    [Theory]
+    [InlineData(1152, true)] // starts at 48.048 s, before the intro, and ends at 50.47 s
+    [InlineData(1200, false)] // starts at 50.05 s, after the intro start
+    public async Task RecapSubtitle_ABlackRunThatFadesIntoTheIntroCountsWhole(int runStart, bool detected)
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(50), DatabaseTestHelpers.Ticks(80));
+
+        var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, MaximumRecapDuration = 120 };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var ffmpeg = new StubFFmpegService
+        {
+            Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on the story")], Complete: true),
+            RangeBlackFrames = (_, range, _, _, _) => ScanFrames(range.End, [runStart, 58]),
+        };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 300,
+            IntroFingerprintEnd = 120,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+        };
+
+        await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config)
+            .AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        (double Start, double End, SegmentSource Source)[] expected = detected ? [(10, runStart * 1001d / 24000, SegmentSource.Subtitle)] : [];
+        Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
+        StubFFmpegService.Call[] scans = [new StubFFmpegService.RangeScan(0, 52, 0, config.BlackFrameThreshold, AnalysisMode.Recap)];
         Assert.Equal(scans, ffmpeg.Calls);
     }
 

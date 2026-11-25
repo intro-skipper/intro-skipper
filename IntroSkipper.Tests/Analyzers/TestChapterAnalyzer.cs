@@ -151,7 +151,7 @@ public class TestChapterAnalyzer
         Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
         Assert.NotNull(recap);
         Assert.Equal(80, recap.End);
-        Assert.Equal([new RangeScan(0, 120, 0, 32, AnalysisMode.Recap)], ffmpeg.Calls);
+        Assert.Equal([new RangeScan(0, 122, 0, 32, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public class TestChapterAnalyzer
         Assert.Equal(87, frame.Percentage);
         Assert.NotNull(recap);
         Assert.Equal(42.0, recap.End);
-        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
+        Assert.Equal([new RangeScan(0, 122, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class TestChapterAnalyzer
 
         Assert.Empty(blackFrames);
         Assert.Null(RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
-        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
+        Assert.Equal([new RangeScan(0, 122, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -542,6 +542,23 @@ public class TestChapterAnalyzer
             Name = name,
             StartPositionTicks = TimeSpan.FromSeconds(position).Ticks
         };
+    }
+
+    // Every recap consumer (subtitle, Chromaprint sting, black-frame fallback) scans through this
+    // helper. It reads MinimumEndingBlackRun past the boundary, so a fade that starts before an
+    // intro and runs into it is measured whole, and never past the episode end.
+    [Theory]
+    [InlineData(87.4, 600, 89.4)]
+    [InlineData(120, 121, 121)]
+    public async Task DetectAdaptiveRecapBlackFrames_ScansMinimumEndingBlackRunPastTheBoundary(double boundary, double duration, double expectedScanEnd)
+    {
+        var config = new PluginConfiguration();
+        var ffmpeg = RecapScan([new(100, 86, 2062)]);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = duration, Path = "episode.mkv" };
+
+        await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, boundary, config, CancellationToken.None);
+
+        Assert.Equal([new StubFFmpegService.RangeScan(0, expectedScanEnd, 0, config.BlackFrameThreshold, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     private static StubFFmpegService RecapScan(BlackFrame[] frames)
