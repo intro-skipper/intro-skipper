@@ -214,8 +214,6 @@ public sealed class TestConfigHasher
         // stored record means. A blank pattern detects nothing, so it hashes as detection off.
         // 12.0.8 wrote subtitle-v1:A7C626905F2D0CF0:8C5986DAF7BAFC78 for Recap, before an intro
         // ahead of the cue stopped cutting the subtitle recap's black scan short.
-        // 12.0.8 wrote subtitle-v1:A7C626905F2D0CF0:8C5986DAF7BAFC78 here, while an intro before
-        // the recap cue still cut the subtitle recap's black scan short.
         Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:A7C626905F2D0CF0:CF885BDC26070626", true);
         Case("Preview analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalysisMode.Preview), "subtitle-v1:19C776EE18C06441:ED1EF897C859EA54", true);
         Case("Recap analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = " " }, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap), true);
