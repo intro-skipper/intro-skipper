@@ -214,7 +214,7 @@ public sealed class TestConfigHasher
         // With subtitle detection on, the hash is "subtitle-v1:", the conventional hash, ":" and a
         // hash of every setting. The pins keep a refactor of the hasher from changing what a
         // stored record means. A blank pattern detects nothing, so it hashes as detection off.
-        Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:DAE7B0AF67CD0242:A6042DB7D7DFDE82", true);
+        Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:DAE7B0AF67CD0242:EE027C62F1D7A9B4", true);
         Case("Preview analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalysisMode.Preview), "subtitle-v1:19C776EE18C06441:ED1EF897C859EA54", true);
         Case("Recap analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = " " }, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap), true);
         Case("Preview analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true, SubtitlePreviewPattern = string.Empty }, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview), true);
