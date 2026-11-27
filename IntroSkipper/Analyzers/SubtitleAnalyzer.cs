@@ -176,9 +176,11 @@ internal sealed partial class SubtitleAnalyzer(
     // end: a cold open often plays between the recap and the intro. Inside that range the end
     // is the first chapter start, else the start of the first black run of at least
     // RecapDetectionHelper.MinimumEndingBlackRun seconds. Black runs come from the scan
-    // Chromaprint and black-frame recaps make, over the same range, so the episode is scanned
-    // once; a recap ending after that range can end only at a chapter. Null when nothing
-    // qualifies. Changing this rule needs a new subtitle recap end token in ConfigHasher.
+    // Chromaprint and black-frame recaps make, up to MaximumRecapDetectionDuration or the start
+    // of an intro that follows the cue. An intro that plays before the cue, such as a title
+    // sequence that opens the episode, does not cut the scan short. A recap ending after that
+    // range can end only at a chapter. Null when nothing qualifies. Changing this rule needs a
+    // new subtitle recap end token in ConfigHasher.
     private async Task<double?> FindRecapEndAsync(QueuedEpisode episode, double cueStart, CancellationToken cancellationToken)
     {
         var introAfterCue = (await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
@@ -200,7 +202,7 @@ internal sealed partial class SubtitleAnalyzer(
             return chapterEnd;
         }
 
-        var scanEnd = await RecapDetectionHelper.GetMaximumBoundaryAsync(_database, episode, _config, cancellationToken).ConfigureAwait(false);
+        var scanEnd = await RecapDetectionHelper.GetMaximumBoundaryAsync(_database, episode, _config, cancellationToken, cueStart).ConfigureAwait(false);
         var latestRun = Math.Min(latest, scanEnd);
         if (latestRun < earliest)
         {

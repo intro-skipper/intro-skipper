@@ -48,14 +48,15 @@ internal static class ConfigHasher
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
     // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
-    private const string SubtitleRecapEndToken = "|subtitleRecapEnd=black2";
+    private const string SubtitleRecapEndToken = "|subtitleRecapEnd=black2|introBeforeCue=ignored|wholeRun";
 
     // Chromaprint recaps end at the first black run of at least 2 s after the sting, no longer at
     // the latest black frame before the boundary (RecapDetectionHelper.BuildRecapFromSting). It
     // sits in the conventional part of every Recap hash, so each season reruns Recap once; the
     // fingerprints and the black-frame scan come from the detection cache. Bump it when that rule
-    // changes.
-    private const string RecapStingEndToken = "|stingEnd=black2";
+    // changes. The recap black-frame scan reads MinimumEndingBlackRun past the boundary, so a run
+    // that starts before an intro and fades into it counts whole (wholeRun).
+    private const string RecapStingEndToken = "|stingEnd=black2|wholeRun";
 
     // With UseEmbeddedChaptersForAnalysis on, analysis reads the chapters embedded in the media
     // file instead of Jellyfin's chapter table. Present only while the setting is on, so the
