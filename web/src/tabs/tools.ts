@@ -55,13 +55,13 @@ export const toolsTab: Tab = {
             if (response.ok) recheckStatus.show("Re-check requested.", "success");
             else recheckStatus.show(response.error, "error");
         });
+        recheckBtn.classList.add("tools-recheck-button");
         const keepOn = () => configStore.get("KeepExistingAnalysis");
         form.visibleWhen(recheckBtn, keepOn);
         form.visibleWhen(recheckStatus.element, keepOn);
 
         const existingAnalysisControls = el("div", { className: "input-container" });
         existingAnalysisControls.append(
-            el("h3", { className: "is-section-heading" }, "Existing Analysis"),
             form.field("KeepExistingAnalysis"),
             recheckBtn,
             recheckStatus.element,
@@ -169,11 +169,11 @@ export const toolsTab: Tab = {
         });
 
         container.append(
-            existingAnalysisControls,
             globalSelectGroup,
             globalEraseBtn,
             rebuildBtn,
             resetBtn,
+            existingAnalysisControls,
         );
     },
 };

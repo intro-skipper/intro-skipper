@@ -261,6 +261,8 @@
 
     :is(.action-button, .ts-reset-overrides) { align-self: start; }
 
+    .tools-recheck-button { margin-block-start: var(--is-space-s); }
+
     /* Outlined actions: a hairline in the text color and the host radius mark
        a button as a control at rest, so a destructive action is a red outline
        rather than red copy that reads as an error. Inline links (retry, chip
