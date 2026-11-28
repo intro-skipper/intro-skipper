@@ -16,6 +16,18 @@ export const configSchema = {
         description:
             'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a href="#/dashboard/tasks">scheduled tasks</a>.',
     },
+    DisableAutomaticHashValidation: {
+        kind: "checkbox",
+        label: "Disable automatic hash validation",
+        description:
+            "Prevents automatic analysis when the plugin or its settings change. Existing analysis hashes are left unchanged; new media and media or subtitle file changes can still trigger analysis.",
+    },
+    UpdateHashesOnce: {
+        kind: "checkbox",
+        label: "Update hashes on next run",
+        description:
+            "On the next completed full-library analysis run, validate hashes and run any resulting analysis even if automatic hash validation is disabled. This option turns itself off after a successful run.",
+    },
     ReanalyzeSettledSeasons: {
         kind: "checkbox",
         label: "Re-analyze settled seasons",
@@ -573,6 +585,7 @@ export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
     readonly EnableSubtitleRecapDetection: boolean;
     readonly EnableSubtitlePreviewDetection: boolean;
+    readonly UpdateHashesRequestId: string;
 };
 
 /** Config keys whose value has type V, so a control binds only to keys it can hold. */

@@ -2,6 +2,7 @@ import type { SegmentType, Tab } from "../types.ts";
 import * as api from "../store/api.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
+import { configForm } from "../components/config-form.ts";
 import { confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { MODE_OPTIONS } from "../components/segment-editor.ts";
 
@@ -32,7 +33,15 @@ export const toolsTab: Tab = {
     id: "tools",
     label: "Tools",
 
-    render(container) {
+    render(container, signal) {
+        const form = configForm(signal);
+        const hashControls = el("div", { className: "input-container" });
+        hashControls.append(
+            el("h3", { className: "is-section-heading" }, "Analysis Hashes"),
+            form.field("DisableAutomaticHashValidation"),
+            form.field("UpdateHashesOnce"),
+        );
+
         const globalSelectId = "global-timestamp-type";
         const globalSelectGroup = el("div", { className: "select-container" });
         const globalSelectLabel = el(
@@ -135,6 +144,7 @@ export const toolsTab: Tab = {
         });
 
         container.append(
+            hashControls,
             globalSelectGroup,
             globalEraseBtn,
             rebuildBtn,
