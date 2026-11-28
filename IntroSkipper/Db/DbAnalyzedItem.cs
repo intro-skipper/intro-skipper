@@ -63,4 +63,12 @@ public sealed class DbAnalyzedItem
     /// only by the facade's set-based statements.
     /// </summary>
     public long? FileVersion { get; private set; }
+
+    /// <summary>
+    /// Gets the keep hash the record was written or last confirmed under
+    /// (<c>ConfigHasher.Keep</c>). Null when the record predates the column, came from the legacy
+    /// import or was re-armed by a segment restore. Empty when a re-check request found it null.
+    /// Written only by the facade's set-based statements.
+    /// </summary>
+    public string? KeepHash { get; private set; }
 }

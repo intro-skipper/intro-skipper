@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Analyzers;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -118,6 +119,66 @@ public class TestAnimePreviewRefresh
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview);
         Assert.Equal(oldPreviewId, preview.Id);
         Assert.Equal("credits-hash", preview.ConfigHash);
+    }
+
+    [Fact]
+    public async Task DeriveAsync_KeepsTheHashOfItsCreditsRows()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration, AnalysisConfigHash = "new" };
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, 1260))], SegmentSource.BlackFrame, "old");
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Preview, [new Segment(EpisodeId, new TimeRange(1260, EpisodeDuration))], SegmentSource.CreditsDerived, "old");
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        Assert.Equal("old", Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ConfigHash);
+    }
+
+    [Fact]
+    public async Task DeriveAsync_NewPreviewTakesTheHashOfItsCreditsRows()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration, AnalysisConfigHash = "new" };
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, 1260))], SegmentSource.BlackFrame, "old");
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        Assert.Equal("old", Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ConfigHash);
+    }
+
+    [Fact]
+    public async Task DeriveAsync_UserCreditsTakeTheStampedHash()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration, AnalysisConfigHash = "current" };
+        await database.SeedUserSegmentAsync(EpisodeId, AnalysisMode.Credits, TimeSpan.FromSeconds(1200).Ticks, TimeSpan.FromSeconds(1260).Ticks);
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        Assert.Equal("current", Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ConfigHash);
+    }
+
+    [Fact]
+    public async Task DeriveAsync_CreditsRowsThatDisagree_LeaveThePreviewAsItIs()
+    {
+        using var temp = new TempSegmentDb();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration, AnalysisConfigHash = "new" };
+        await temp.Database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new AttributedSegment(new Segment(EpisodeId, new TimeRange(1100, 1200)), SegmentSource.Chapter), new AttributedSegment(new Segment(EpisodeId, new TimeRange(1200, 1260)), SegmentSource.BlackFrame)],
+            "old");
+        await using (var db = temp.Context())
+        {
+            await db.Segments
+                .Where(s => s.Type == AnalysisMode.Credits && s.Source == SegmentSource.Chapter)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.ConfigHash, "older"));
+        }
+
+        await AnimePreviewDeriver.DeriveAsync(temp.Database, [episode], 15, CancellationToken.None);
+
+        Assert.DoesNotContain(await temp.Database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview);
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 
     [Fact]

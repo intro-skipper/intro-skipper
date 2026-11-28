@@ -77,4 +77,21 @@ public partial class SkipIntroController(
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Requests a re-check of every analysis record that exists now. On the next pass over its
+    /// season, a record is judged by its configuration hash even while existing analysis is kept.
+    /// A record whose settings changed reruns, and the rest are kept again. The endpoint queues
+    /// no pass.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">The request is stored.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Intros/RecheckAnalysis")]
+    public async Task<ActionResult> RecheckAnalysis(CancellationToken cancellationToken = default)
+    {
+        await _database.RequestAnalysisRecheckAsync(cancellationToken).ConfigureAwait(false);
+        return NoContent();
+    }
 }

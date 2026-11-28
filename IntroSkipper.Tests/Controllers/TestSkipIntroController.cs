@@ -100,6 +100,17 @@ public sealed class TestSkipIntroController : IDisposable
         Assert.Empty(await _h.Database.GetSegmentsAsync(Guid.NewGuid()));
     }
 
+    [Fact]
+    public async Task RecheckAnalysis_StoresANewRequest()
+    {
+        var before = await _h.Database.GetAnalysisRecheckRequestAsync();
+
+        var result = await CreateController(DatabaseTestHelpers.CreateTempCacheDbPath()).RecheckAnalysis(CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.NotEqual(before, await _h.Database.GetAnalysisRecheckRequestAsync());
+    }
+
     private SkipIntroController CreateController(string cacheDbPath)
         => new(new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change), _h.Database);
 }

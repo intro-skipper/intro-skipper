@@ -87,11 +87,19 @@ internal static class DatabaseTestHelpers
     internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     /// <summary>
-    /// Records the items as analyzed without a file version, the shape of records written
-    /// before versioning. Tests about the version itself call the facade directly.
+    /// Records the items as analyzed without a file version, as records written before
+    /// versioning were, and with an empty keep hash (see the overload below). Tests about the
+    /// version itself call the facade directly.
     /// </summary>
     internal static Task MarkItemsAnalyzedAsync(this IntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
         => database.MarkItemsAnalyzedAsync(mode, itemIds.Select(id => (id, (long?)null)), configHash);
+
+    /// <summary>
+    /// Records the items as analyzed with an empty keep hash, the state a re-check request
+    /// leaves on a record that had none, so the verifier judges them by their configuration hash.
+    /// </summary>
+    internal static Task MarkItemsAnalyzedAsync(this IntroSkipperDatabase database, AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, string configHash)
+        => database.MarkItemsAnalyzedAsync(mode, items, new RecordHashes(configHash, string.Empty));
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
         => new(new TestDbContextFactory<DetectionCacheDbContext>(() => CreateCacheContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);

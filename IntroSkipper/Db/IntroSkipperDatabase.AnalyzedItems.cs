@@ -12,6 +12,8 @@ namespace IntroSkipper.Db;
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
+    private const string AnalysisRecheckRequestKey = "analysis-recheck-request";
+
     /// <summary>
     /// Re-stamps completed analysis and its active automatic segments from one hash to
     /// another in one transaction, for the 10.11 adoption and the chapter source check. Only
@@ -65,18 +67,16 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Records the items as analyzed for the mode under the given configuration hash and
-    /// each item's file version, whether or not segments were found, replacing any earlier
-    /// record of the same item and mode. Queue verification treats a matching record as
-    /// settled (<c>Analyzed</c> with segments, <c>NoSegments</c> without) and a missing or
-    /// mismatching one as <c>NotAnalyzed</c>.
+    /// Records the items as analyzed for the mode under both record hashes and each item's file
+    /// version, whether or not segments were found, replacing any earlier record of the same item
+    /// and mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="items">Items that were analyzed, each with the file version it was analyzed at (null when unknown).</param>
-    /// <param name="configHash">Configuration hash used for the analysis.</param>
+    /// <param name="hashes">The configuration and keep hashes the mode ran under.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, string configHash, CancellationToken cancellationToken = default)
+    /// <returns>A task that completes when the records are committed in one transaction.</returns>
+    public Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, RecordHashes hashes, CancellationToken cancellationToken = default)
     {
         var rows = items.DistinctBy(item => item.ItemId).ToArray();
         if (rows.Length == 0)
@@ -84,19 +84,90 @@ public sealed partial class IntroSkipperDatabase
             return Task.CompletedTask;
         }
 
-        // {0} binds the mode and {1} the hash once per statement; every row reuses them.
         var statements = MultiRowSql.Statements(
             rows,
             item => [item.ItemId, item.FileVersion],
-            p => $"({p[0]}, {{0}}, {{1}}, {p[1]})",
+            p => $"({p[0]}, {{0}}, {{1}}, {p[1]}, {{2}})",
             values => $"""
-                INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash", "FileVersion")
+                INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash", "FileVersion", "KeepHash")
                 VALUES {values}
-                ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash", "FileVersion" = excluded."FileVersion"
+                ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash", "FileVersion" = excluded."FileVersion", "KeepHash" = excluded."KeepHash"
                 """,
             (int)mode,
-            configHash);
+            hashes.ConfigHash,
+            hashes.KeepHash);
         return ExecuteInTransactionAsync(statements, cancellationToken);
+    }
+
+    /// <summary>
+    /// Stores the keep hash on records queue verification settled under another keep hash.
+    /// Updates only rows that still carry the configuration hash they were judged under, so a
+    /// record rewritten between the snapshot and this call keeps its own state. Creates no
+    /// missing record.
+    /// </summary>
+    /// <param name="confirmations">The records to confirm, grouped by mode and hashes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when every confirmation is committed in one transaction.</returns>
+    public async Task ConfirmKeepHashesAsync(IReadOnlyCollection<KeepConfirmation> confirmations, CancellationToken cancellationToken = default)
+    {
+        if (confirmations.Count == 0)
+        {
+            return;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            foreach (var (mode, hashes, itemIds) in confirmations)
+            {
+                var ids = itemIds.Distinct().ToArray();
+                await db.AnalyzedItems
+                    .Where(a => a.Type == mode && a.ConfigHash == hashes.ConfigHash && EF.Parameter(ids).Contains(a.ItemId))
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.KeepHash, hashes.KeepHash), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Returns the current re-check request, or an empty string when none was ever made.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The request token.</returns>
+    public async Task<string> GetAnalysisRecheckRequestAsync(CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        return await db.PluginMetadata
+            .AsNoTracking()
+            .Where(row => row.Key == AnalysisRecheckRequestKey)
+            .Select(row => row.Value)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Stores a new re-check request. Every record whose keep hash carries an older request is
+    /// judged by its configuration hash on the next pass over its season. So is every record
+    /// without a keep hash: the same transaction gives it an empty one, which matches no keep
+    /// hash, so the verifier does not keep it as it stands under the new request.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the request and the marks are committed in one transaction.</returns>
+    public Task RequestAnalysisRecheckAsync(CancellationToken cancellationToken = default)
+    {
+        var request = Guid.CreateVersion7().ToString("N");
+        FormattableString upsert = $"""
+            INSERT INTO "PluginMetadata" ("Key", "Value")
+            VALUES ({AnalysisRecheckRequestKey}, {request})
+            ON CONFLICT("Key") DO UPDATE SET "Value" = excluded."Value"
+            """;
+        FormattableString markWithoutKeepHash = $"""UPDATE "AnalyzedItems" SET "KeepHash" = '' WHERE "KeepHash" IS NULL""";
+        return ExecuteInTransactionAsync([upsert, markWithoutKeepHash], cancellationToken);
     }
 
     /// <summary>

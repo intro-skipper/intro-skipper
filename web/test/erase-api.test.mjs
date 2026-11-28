@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearExcludedTimestamps, eraseSeasonTimestamps, eraseTimestamps } from "../src/store/api.ts";
+import { clearExcludedTimestamps, eraseSeasonTimestamps, eraseTimestamps, recheckAnalysis } from "../src/store/api.ts";
 
 const requests = [];
 
@@ -35,5 +35,15 @@ test("each erase sends the cache and tombstone flags it is given", async () => {
             ["DELETE", "/Intros/Show/show/season", null, "true", "false"],
             ["POST", "/Intros/ExcludedTimestamps/Clear", null, null, "false"],
         ],
+    );
+});
+
+test("recheckAnalysis posts to Intros/RecheckAnalysis", async () => {
+    requests.length = 0;
+    await recheckAnalysis();
+
+    assert.deepEqual(
+        requests.map(({ url, method }) => [method, url.pathname]),
+        [["POST", "/Intros/RecheckAnalysis"]],
     );
 });

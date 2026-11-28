@@ -32,6 +32,9 @@ namespace IntroSkipper.Migrations
                     b.Property<long?>("FileVersion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("KeepHash")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("ItemId", "Type");
 
                     b.ToTable("AnalyzedItems", (string)null);

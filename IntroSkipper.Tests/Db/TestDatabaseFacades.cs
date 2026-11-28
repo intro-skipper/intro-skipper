@@ -745,6 +745,55 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task MarkItemsAnalyzedAsync_StoresBothHashes_AndReplacesThemOnConflict()
+    {
+        var seasonId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(itemId, (long?)1)], new RecordHashes("config-1", "keep-1"));
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(itemId, (long?)1)], new RecordHashes("config-2", "keep-2"));
+
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [itemId]);
+        Assert.Equal(new AnalysisRecord("config-2", 1, "keep-2"), snapshot.AnalysisRecords[(itemId, AnalysisMode.Introduction)]);
+    }
+
+    [Fact]
+    public async Task ConfirmKeepHashesAsync_UpdatesOnlyRowsStillUnderTheJudgedHash()
+    {
+        var judged = Guid.NewGuid();
+        var rewritten = Guid.NewGuid();
+        var missing = Guid.NewGuid();
+        var database = _db.Database;
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(judged, (long?)null)], new RecordHashes("config", "keep-old"));
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(rewritten, (long?)null)], new RecordHashes("config-newer", "keep-old"));
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(judged, (long?)null)], new RecordHashes("config", "keep-old"));
+
+        await database.ConfirmKeepHashesAsync([new KeepConfirmation(AnalysisMode.Introduction, new RecordHashes("config", "keep-new"), [judged, rewritten, missing])]);
+
+        await using var db = _db.Context();
+        var records = await db.AnalyzedItems.AsNoTracking().ToListAsync();
+        Assert.Equal(3, records.Count);
+        Assert.Equal("keep-new", Assert.Single(records, r => r.ItemId == judged && r.Type == AnalysisMode.Introduction).KeepHash);
+        Assert.Equal("keep-old", Assert.Single(records, r => r.ItemId == rewritten).KeepHash);
+        Assert.Equal("keep-old", Assert.Single(records, r => r.Type == AnalysisMode.Credits).KeepHash);
+    }
+
+    [Fact]
+    public async Task AnalysisRecheckRequest_IsEmptyUntilRequested_AndChangesWithEveryRequest()
+    {
+        var database = _db.Database;
+
+        Assert.Equal(string.Empty, await database.GetAnalysisRecheckRequestAsync());
+        await database.RequestAnalysisRecheckAsync();
+        var first = await database.GetAnalysisRecheckRequestAsync();
+        await database.RequestAnalysisRecheckAsync();
+
+        Assert.NotEqual(string.Empty, first);
+        Assert.NotEqual(first, await database.GetAnalysisRecheckRequestAsync());
+    }
+
+    [Fact]
     public async Task BackfillFileVersionsAsync_StampsOnlyUnversionedRecords_AcrossStatementChunks()
     {
         var ids = Enumerable.Range(0, MultiRowSql.ChunkSize + 1).Select(_ => Guid.NewGuid()).ToArray();
@@ -974,7 +1023,9 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.ReplaceAutoSegmentsAsync(automaticItemId, AnalysisMode.Introduction, [new Segment(automaticItemId, new TimeRange(5, 30))], SegmentSource.Chromaprint, "cfg-auto");
         await database.ReplaceAutoSegmentsAsync(automaticItemId, AnalysisMode.Commercial, [new Segment(automaticItemId, new TimeRange(100, 110))], SegmentSource.Chapter);
         await database.SeedUserSegmentAsync(userProvidedItemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
-        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds, "cfg-season");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds.Select(id => (id, (long?)null)), new RecordHashes("cfg-season", "keep-season"));
+        await database.RequestAnalysisRecheckAsync();
+        var recheckRequest = await database.GetAnalysisRecheckRequestAsync();
         await database.SetAnalyzerActionAsync(
             seasonId,
             new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Credits] = AnalyzerAction.None });
@@ -1008,6 +1059,8 @@ public sealed class TestDatabaseFacades : IDisposable
         var analyzed = await db.AnalyzedItems.AsNoTracking().ToListAsync();
         Assert.Equal(episodeIds.OrderBy(id => id), analyzed.Select(a => a.ItemId).OrderBy(id => id));
         Assert.All(analyzed, a => Assert.Equal("cfg-season", a.ConfigHash));
+        Assert.All(analyzed, a => Assert.Equal("keep-season", a.KeepHash));
+        Assert.Equal(recheckRequest, await database.GetAnalysisRecheckRequestAsync());
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(episodeIds));
         Assert.True((await database.GetAnalysisOverridesAsync(seasonId)).PreviewFromCreditsEnd);
         Assert.True(await database.IsPreviewSettingMigrationCompleteAsync());

@@ -68,6 +68,14 @@ _Avoid_: Dense page, text page
 The last write time Jellyfin observed for an item's media file, recorded with each analysis record. A mode with active subtitle detection records a version that also covers the text subtitle files it reads next to the media file or in the item's internal metadata folder. An analysis whose file version differs from the item's current one no longer describes the files it read.
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
 
+**Kept result**:
+An analysis result reused under `KeepExistingAnalysis` although the settings that made it changed. Its record's keep hash is missing or current and its configuration hash is not, and the record keeps that configuration hash.
+_Avoid_: frozen result, unvalidated hash
+
+**Re-check request**:
+The token that Re-check all analysis stores in `PluginMetadata`. On a season's next pass, `QueueVerifier` judges a record whose keep hash carries an older token, or that had no keep hash when the token was stored, by its configuration hash. Nothing consumes the token.
+_Avoid_: validation pass, hash update, one-time update
+
 **Season key**:
 The id a group of items is analyzed and stored under. A movie's key is its own id. An episode's key is its season's id, except for an in-season special, whose key is its host season's id when that season resolves with episodes of its own.
 _Avoid_: Queue key, season-state key, group id

@@ -3,6 +3,8 @@ import * as api from "../store/api.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { configForm } from "../components/config-form.ts";
+import { actionButton } from "../components/action-button.ts";
+import { createStatusMessage } from "../components/async-feedback.ts";
 import { confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { MODE_OPTIONS } from "../components/segment-editor.ts";
 
@@ -35,11 +37,34 @@ export const toolsTab: Tab = {
 
     render(container, signal) {
         const form = configForm(signal);
-        const hashControls = el("div", { className: "input-container" });
-        hashControls.append(
-            el("h3", { className: "is-section-heading" }, "Analysis Hashes"),
-            form.field("DisableAutomaticHashValidation"),
-            form.field("UpdateHashesOnce"),
+        const recheckStatus = createStatusMessage();
+        const recheckBtn = actionButton("Re-check All Analysis", async () => {
+            if (configStore.isDirty()) {
+                recheckStatus.show("Save configuration changes before re-checking.", "error");
+                return;
+            }
+
+            const confirmed = await confirmDialog({
+                title: "Re-check All Analysis",
+                body: "Re-check every analyzed item against the current settings during the next analysis? Items whose settings changed are analyzed again.",
+                confirmLabel: "Re-check",
+            });
+            if (!confirmed) return;
+
+            const response = await api.recheckAnalysis();
+            if (response.ok) recheckStatus.show("Re-check requested.", "success");
+            else recheckStatus.show(response.error, "error");
+        });
+        const keepOn = () => configStore.get("KeepExistingAnalysis");
+        form.visibleWhen(recheckBtn, keepOn);
+        form.visibleWhen(recheckStatus.element, keepOn);
+
+        const existingAnalysisControls = el("div", { className: "input-container" });
+        existingAnalysisControls.append(
+            el("h3", { className: "is-section-heading" }, "Existing Analysis"),
+            form.field("KeepExistingAnalysis"),
+            recheckBtn,
+            recheckStatus.element,
         );
 
         const globalSelectId = "global-timestamp-type";
@@ -144,7 +169,7 @@ export const toolsTab: Tab = {
         });
 
         container.append(
-            hashControls,
+            existingAnalysisControls,
             globalSelectGroup,
             globalEraseBtn,
             rebuildBtn,
